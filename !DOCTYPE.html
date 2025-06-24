@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>TECKSTORE</title>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; background-color: #f5f5f5; }
+    .top-bar {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      padding: 20px; background-color: white;
+    }
+    .logo { font-weight: bold; color: red; font-size: 24px; }
+    .action-area { text-align: right; }
+    .plus { font-size: 32px; cursor: pointer; font-weight: bold; line-height: 1; }
+    .create-invoice { font-size: 14px; margin-top: 4px; color: #333; }
+    .main-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; padding: 20px;
+    }
+    .box {
+      background-color: white; padding: 40px; text-align: center;
+      font-size: 20px; font-weight: bold; border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1); cursor: pointer; transition: 0.3s;
+    }
+    .box:hover { background-color: #f0f0f0; }
+
+    .invoice-modal {
+      display: none; position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%); background: white;
+      padding: 20px; border-radius: 10px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.2); width: 90%; max-width: 700px;
+      z-index: 999;
+    }
+    .invoice-modal input, .invoice-modal select {
+      margin: 5px 0; padding: 5px; width: 100%;
+    }
+    .invoice-table {
+      width: 100%; border-collapse: collapse; margin-top: 10px;
+    }
+    .invoice-table th, .invoice-table td {
+      border: 1px solid #ccc; padding: 8px; text-align: center;
+    }
+    .invoice-table select { width: 100%; white-space: nowrap; }
+    .close-btn {
+      float: right; cursor: pointer; color: red;
+      font-size: 18px; font-weight: bold;
+    }
+    .total { margin-top: 10px; text-align: right; font-weight: bold; }
+    .btn-area {
+      margin-top: 15px; display: flex; justify-content: space-between;
+      flex-wrap: wrap; gap: 10px;
+    }
+    .btn-area button {
+      padding: 8px 12px; cursor: pointer;
+      border: none; background: #1976d2; color: white; border-radius: 4px;
+    }
+
+    /* Hóa đơn in 7.5cm */
+    #invoicePreviewContainer {
+      display: none;
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: white;
+      padding: 0;
+      border-radius: 8px;
+      border: 1px solid #999;
+      z-index: 1000;
+      width: 7.5cm;
+      font-size: 11px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.3);
+      overflow: auto;
+    }
+    #invoiceArea {
+      padding: 8px;
+      font-family: Arial, sans-serif;
+    }
+    #invoiceArea table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10px;
+    }
+    #invoiceArea th, #invoiceArea td {
+      border: 1px solid #000;
+      padding: 3px 2px;
+      text-align: center;
+      word-break: break-word;
+    }
+    #invoiceArea h3 {
+      font-size: 13px;
+      margin: 4px 0;
+    }
+    #invoiceArea p {
+      margin: 2px 0;
+      font-size: 10px;
+    }
+    #invoiceArea .centered {
+      margin-top: 6px;
+      text-align: center;
+      font-size: 9px;
+      font-style: italic;
+    }
+    .remove-btn {
+      color: red; cursor: pointer; font-weight: bold;
+    }
+  </style>
+  <!-- html2canvas dùng để lưu ảnh hóa đơn -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</head>
+<body>
+  <header class="top-bar">
+    <div class="logo">TECKSTORE</div>
+    <div class="action-area">
+      <div class="plus" onclick="openInvoice()">+</div>
+      <div class="create-invoice">Tạo Hóa Đơn</div>
+    </div>
+  </header>
+  <main class="main-grid">
+    <div class="box">Bảng Giá</div>
+    <div class="box" onclick="document.getElementById('orderLogPopup').style.display='block'">Nhật Kí Đơn</div>
+    <div class="box" onclick="document.getElementById('revenuePopup').style.display='block'">Doanh Thu</div>
+    <div class="box" onclick="document.getElementById('stockPopup').style.display='block'">Tồn Kho</div>
+  </main>
+  <!-- Giao diện tạo hóa đơn -->
+  <div class="invoice-modal" id="invoiceModal">
+    <div class="close-btn" onclick="closeInvoice()">×</div>
+    <h2 style="text-align:center">HÓA ĐƠN BÁN HÀNG</h2>
+    <p style="text-align:center; margin-top:10px;"><strong id="orderDateDisplay"></strong></p>
+    <p style="text-align:center;"><strong id="invoiceCodeDisplay"></strong></p>
+
+    <label>Khách hàng:</label>
+    <input id="customerName" type="text"/>
+    <label>SĐT/Mã bảo hành:</label>
+    <input id="customerPhone" type="text"/>
+
+    <table class="invoice-table" id="invoiceTable">
+      <thead>
+        <tr>
+          <th>Tên SP</th><th>SL</th><th>Đơn Giá</th><th>Thành Tiền</th>
+        </tr>
+      </thead>
+      <tbody id="invoiceBody">
+        <tr>
+          <td>
+            <select onchange="prefillProduct(this)">
+              <option value="">Chọn sản phẩm...</option>
+              <option value="Bộ sạc nhanh 20W|1|190000">Bộ sạc nhanh 20W</option>
+              <option value="Cáp sạc nhanh store|1|70000">Cáp sạc nhanh store</option>
+            </select>
+          </td>
+          <td><input onchange="updateTotal()" type="number" value=""/></td>
+          <td><input onchange="updateTotal()" type="number" value=""/></td>
+          <td class="amount">0</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <button onclick="addProductRow()">+ Thêm sản phẩm</button>
+
+    <label>Chi phí vận chuyển:</label>
+    <input id="shippingCost" onchange="updateTotal()" type="number" value="0"/>
+    <label>Giảm giá:</label>
+    <input id="discount" onchange="updateTotal()" type="number" value="0"/>
+
+    <div class="total">Tổng tiền hàng: <span id="totalAmount">0</span> đ</div>
+    <div class="total">Tổng thanh toán: <span id="finalAmount">0</span> đ</div>
+
+    <div class="btn-area">
+      <button onclick="generateInvoice()">Tạo Hóa Đơn</button>
+    </div>
+  </div>
+
+  <!-- Xem trước hóa đơn (có ảnh QR VietQR) -->
+  <div id="invoicePreviewContainer">
+    <div id="invoiceArea"></div>
+    <div class="btn-area">
+      <button onclick="closePreview()">Sửa Hóa Đơn</button>
+      <button onclick="downloadImage()">Lưu Ảnh</button>
+      <button onclick="completeInvoice()">Hoàn tất</button>
+    </div>
+  </div>
+  <!-- Popup Nhật ký đơn -->
+  <div class="popup" id="orderLogPopup" style="display:none; position:fixed; top:10%; left:50%; transform:translateX(-50%); background:white; border:1px solid #ccc; padding:20px; z-index:1001; max-height:80%; overflow:auto;">
+    <div style="text-align:right;">
+      <button onclick="document.getElementById('orderLogPopup').style.display='none'">Đóng</button>
+    </div>
+    <h3>Nhật ký đơn</h3>
+    <table class="invoice-table" id="orderLogTable">
+      <tr>
+        <th>Khách hàng</th><th>SĐT</th><th>Ngày</th><th>Số HĐ</th><th>Thành tiền</th><th>Xoá</th>
+      </tr>
+    </table>
+  </div>
+
+  <!-- Popup Doanh thu -->
+  <div class="popup" id="revenuePopup" style="display:none; position:fixed; top:10%; left:50%; transform:translateX(-50%); background:white; border:1px solid #ccc; padding:20px; z-index:1001; max-height:80%; overflow:auto;">
+    <div style="text-align:right;">
+      <button onclick="document.getElementById('revenuePopup').style.display='none'">Đóng</button>
+    </div>
+    <h3>Doanh thu</h3>
+    <table class="invoice-table" id="revenueTable">
+      <tr><th>Ngày</th><th>Thành tiền</th></tr>
+    </table>
+    <div class="total">Tổng doanh thu: <span id="totalRevenue">0</span> đ</div>
+  </div>
+
+  <!-- Popup Tồn kho -->
+  <div class="popup" id="stockPopup" style="display:none; position:fixed; top:10%; left:50%; transform:translateX(-50%); background:white; border:1px solid #ccc; padding:20px; z-index:1001; max-height:80%; overflow:auto;">
+    <div style="text-align:right;">
+      <button onclick="document.getElementById('stockPopup').style.display='none'">Đóng</button>
+    </div>
+    <h3>Tồn kho</h3>
+    <table class="invoice-table" id="stockTable">
+      <tr><th>Sản phẩm</th><th>Tồn kho</th></tr>
+      <tr><td>Bộ sạc nhanh 20W</td><td data-product="Bộ sạc nhanh 20W">100</td></tr>
+      <tr><td>Cáp sạc nhanh store</td><td data-product="Cáp sạc nhanh store">100</td></tr>
+    </table>
+  </div>
+<script>
+let invoiceCounter = 1;
+
+function openInvoice() {
+  const today = new Date();
+  const dateStr = today.toLocaleDateString("vi-VN");
+  const code = generateInvoiceCode(today);
+  document.getElementById("orderDateDisplay").innerText = "Ngày mua hàng: " + dateStr;
+  document.getElementById("invoiceCodeDisplay").innerText = "Số HĐ: " + code;
+  document.getElementById("invoiceModal").style.display = "block";
+}
+
+function closeInvoice() {
+  document.getElementById("invoiceModal").style.display = "none";
+}
+
+function closePreview() {
+  document.getElementById("invoicePreviewContainer").style.display = "none";
+}
+
+function prefillProduct(select) {
+  const [name, qty, price] = select.value.split("|");
+  const row = select.closest("tr");
+  if (name) {
+    row.children[1].children[0].value = qty;
+    row.children[2].children[0].value = price;
+  }
+  updateTotal();
+}
+
+function addProductRow() {
+  const tbody = document.getElementById("invoiceBody");
+  const row = tbody.insertRow();
+  row.innerHTML = `
+    <td>
+      <select onchange="prefillProduct(this)">
+        <option value="">Chọn sản phẩm...</option>
+        <option value="Bộ sạc nhanh 20W|1|190000">Bộ sạc nhanh 20W</option>
+        <option value="Cáp sạc nhanh store|1|70000">Cáp sạc nhanh store</option>
+      </select>
+    </td>
+    <td><input type="number" onchange="updateTotal()" /></td>
+    <td><input type="number" onchange="updateTotal()" /></td>
+    <td class="amount">0</td>
+  `;
+}
+
+function updateTotal() {
+  let total = 0;
+  document.querySelectorAll("#invoiceBody tr").forEach(row => {
+    const qty = parseFloat(row.children[1].children[0].value) || 0;
+    const price = parseFloat(row.children[2].children[0].value) || 0;
+    const amount = qty * price;
+    row.querySelector(".amount").innerText = amount.toLocaleString();
+    total += amount;
+  });
+  const ship = parseFloat(document.getElementById("shippingCost").value) || 0;
+  const discount = parseFloat(document.getElementById("discount").value) || 0;
+  document.getElementById("totalAmount").innerText = total.toLocaleString();
+  document.getElementById("finalAmount").innerText = (total + ship - discount).toLocaleString();
+}
+
+function generateInvoiceCode(date = new Date()) {
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  return String(invoiceCounter).padStart(2, '0') + dd + mm + "25";
+}
+
+function generateInvoice() {
+  updateTotal();
+  const name = document.getElementById("customerName").value;
+  const phone = document.getElementById("customerPhone").value;
+  const date = new Date();
+  const dateStr = date.toLocaleDateString("vi-VN");
+  const code = generateInvoiceCode(date);
+  const total = document.getElementById("totalAmount").innerText;
+  const final = document.getElementById("finalAmount").innerText;
+  const ship = parseFloat(document.getElementById("shippingCost").value) || 0;
+  const discount = parseFloat(document.getElementById("discount").value) || 0;
+
+  let rowsHtml = '';
+  const items = [];
+  document.querySelectorAll("#invoiceBody tr").forEach(row => {
+    const sp = row.children[0].querySelector("select option:checked").textContent;
+    const qty = row.children[1].children[0].value;
+    const price = row.children[2].children[0].value;
+    const amount = row.querySelector(".amount").innerText;
+    if (sp && qty > 0) {
+      rowsHtml += `<tr><td>${sp}</td><td>${qty}</td><td>${price}</td><td>${amount}</td></tr>`;
+      items.push({ name: sp, qty: parseInt(qty) });
+    }
+  });
+
+  // Cập nhật tồn kho
+  items.forEach(item => {
+    const td = document.querySelector(`#stockTable td[data-product="${item.name}"]`);
+    if (td) td.innerText = Math.max(0, parseInt(td.innerText) - item.qty);
+  });
+
+  // Nhật ký đơn
+  const logTable = document.getElementById("orderLogTable");
+  const row = logTable.insertRow();
+  row.innerHTML = `<td>${name}</td><td>${phone}</td><td>${dateStr}</td><td>${code}</td><td>${final} đ</td><td><span class="remove-btn" onclick="deleteOrderRow(this, ${JSON.stringify(items).replace(/"/g, '&quot;')})">X</span></td>`;
+
+  // Doanh thu
+  const revTable = document.getElementById("revenueTable");
+  const revRow = revTable.insertRow();
+  revRow.innerHTML = `<td>${dateStr}</td><td>${final} đ</td>`;
+  updateRevenueTotal();
+
+  // Hóa đơn HTML kèm ảnh QR
+  const html = `
+    <div>
+      <h3 style="text-align:center">HÓA ĐƠN BÁN HÀNG</h3>
+      <p style="text-align:center;">Ngày mua hàng: ${dateStr}</p>
+      <p style="text-align:center;">Số HĐ: ${code}</p>
+      <p><strong>Khách hàng:</strong> ${name}</p>
+      <p><strong>SĐT/Mã bảo hành:</strong> ${phone}</p>
+      <table>
+        <thead><tr><th>Tên SP</th><th>SL</th><th>Đơn Giá</th><th>Thành Tiền</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      <p><strong>Tổng tiền hàng:</strong> ${total} đ</p>
+      <p><strong>Chi phí vận chuyển:</strong> ${ship.toLocaleString()} đ</p>
+      <p><strong>Giảm giá:</strong> ${discount.toLocaleString()} đ</p>
+      <p><strong>Tổng thanh toán:</strong> ${final} đ</p>
+      <div class="centered">
+        <img src="https://img.vietqr.io/image/mbbank-0378048458-compact.png?amount=0&accountName=LU%20TRONG%20HUY" alt="QR Code" style="width:100px;margin-top:5px" />
+        <p><em>Teck Store xin cảm ơn quý khách hàng!</em></p>
+      </div>
+    </div>
+  `;
+  document.getElementById("invoiceArea").innerHTML = html;
+  document.getElementById("invoicePreviewContainer").style.display = "block";
+}
+
+function downloadImage() {
+  html2canvas(document.getElementById("invoiceArea"), { scale: 2 }).then(canvas => {
+    canvas.toBlob(blob => {
+      const link = document.createElement("a");
+      link.download = "invoice.png";
+      link.href = URL.createObjectURL(blob);
+      link.click();
+    });
+  });
+}
+
+function completeInvoice() {
+  invoiceCounter++;
+  document.getElementById("invoiceModal").style.display = "none";
+  document.getElementById("invoicePreviewContainer").style.display = "none";
+  document.getElementById("customerName").value = "";
+  document.getElementById("customerPhone").value = "";
+  document.getElementById("shippingCost").value = "0";
+  document.getElementById("discount").value = "0";
+  document.getElementById("totalAmount").innerText = "0";
+  document.getElementById("finalAmount").innerText = "0";
+  const tbody = document.getElementById("invoiceBody");
+  tbody.innerHTML = '';
+  addProductRow();
+  alert("🎉 Hóa đơn đã hoàn tất và lưu lại!");
+}
+
+function updateRevenueTotal() {
+  let total = 0;
+  document.querySelectorAll("#revenueTable tr td:nth-child(2)").forEach(cell => {
+    total += parseInt(cell.innerText.replace(/[^\d]/g, '') || 0);
+  });
+  document.getElementById("totalRevenue").innerText = total.toLocaleString();
+}
+
+function deleteOrderRow(btn, itemsJson) {
+  const row = btn.closest("tr");
+  const items = itemsJson;
+  items.forEach(item => {
+    const td = document.querySelector(`#stockTable td[data-product="${item.name}"]`);
+    if (td) td.innerText = parseInt(td.innerText) + item.qty;
+  });
+  row.remove();
+  updateRevenueTotal();
+}
+</script>
+</body>
+</html>
